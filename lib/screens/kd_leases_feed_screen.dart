@@ -7,7 +7,7 @@ class KDLeasesFeedScreen extends StatefulWidget {
   final String currentLanguage;
 
   const KDLeasesFeedScreen({Key? key, required this.currentLanguage})
-    : super(key: key);
+      : super(key: key);
 
   @override
   State<KDLeasesFeedScreen> createState() => _KDLeasesFeedScreenState();
@@ -16,72 +16,124 @@ class KDLeasesFeedScreen extends StatefulWidget {
 class _KDLeasesFeedScreenState extends State<KDLeasesFeedScreen> {
   late String _currentLanguage;
   late List<KDListing> _allListings;
-  late List<KDListing> _filteredListings;
+
+  // Track multi-selected categories for the quick top filter ribbon
+  final List<FeedCategory> _selectedCategories = [];
 
   String? _selectedTown;
   int? _maxBudget;
-  int? _minBedrooms;
+  int? _exactRoomCount;
 
   @override
   void initState() {
     super.initState();
     _currentLanguage = widget.currentLanguage;
     _allListings = KDListingMockData.sampleListings;
-    _filteredListings = _allListings;
+  }
+
+  /// Toggles selection of a category chip from the top navigation ribbon
+  void _toggleCategory(FeedCategory category) {
+    setState(() {
+      if (_selectedCategories.contains(category)) {
+        _selectedCategories.remove(category);
+      } else {
+        _selectedCategories.add(category);
+      }
+    });
+  }
+
+  void _clearAllFilters() {
+    setState(() {
+      _selectedTown = null;
+      _maxBudget = null;
+      _exactRoomCount = null;
+      _selectedCategories.clear();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final filteredListings = KDListingMockData.filterListings(
+      listings: _allListings,
+      activeCategories: _selectedCategories,
+      town: _selectedTown,
+      maxBudget: _maxBudget,
+      exactRoomCount: _exactRoomCount,
+    );
+
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: Text(
           AppStrings.get('feed_title', language: _currentLanguage),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: InkWell(
-              onTap: _showFilterDrawer,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.filter_list_rounded,
-                      color: Colors.blue.shade700,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Filter',
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(56.0),
+          child: _buildTopCategoryRibbon(),
+        ),
       ),
-      body: _buildFeedList(),
+      body: _buildResponsiveGrid(filteredListings),
     );
   }
 
-  Widget _buildFeedList() {
-    if (_filteredListings.isEmpty) {
+  /// Top 4-Button Category Filter Bar Horizontal Ribbon
+  Widget _buildTopCategoryRibbon() {
+    return Container(
+      height: 56.0,
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      color: Theme.of(context).canvasColor,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: FeedCategory.values.map((category) {
+          final isSelected = _selectedCategories.contains(category);
+
+          String label = '';
+          switch (category) {
+            case FeedCategory.tenant:
+              label = _currentLanguage == AppStrings.en ? 'Tenant' : 'Locataire';
+              break;
+            case FeedCategory.roommate:
+              label = _currentLanguage == AppStrings.en ? 'Roommate' : 'Colocataire';
+              break;
+            case FeedCategory.hotel:
+              label = _currentLanguage == AppStrings.en ? 'Hotel' : 'Hôtel';
+              break;
+            case FeedCategory.guesthouse:
+              label = _currentLanguage == AppStrings.en ? 'Guesthouse' : 'Résidence';
+              break;
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: FilterChip(
+              label: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13.0,
+                  color: isSelected ? Colors.white : Colors.black87,
+                ),
+              ),
+              selected: isSelected,
+              onSelected: (_) => _toggleCategory(category),
+              selectedColor: Colors.blue.shade700,
+              checkmarkColor: Colors.white,
+              backgroundColor: Colors.grey.shade200,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  /// Responsive Multi-Column Grid Builder Layout
+  Widget _buildResponsiveGrid(List<KDListing> listings) {
+    if (listings.isEmpty) {
       return Center(
         child: Text(
           AppStrings.get('feed_no_results', language: _currentLanguage),
@@ -91,23 +143,31 @@ class _KDLeasesFeedScreenState extends State<KDLeasesFeedScreen> {
       );
     }
 
-    final feedItems = <Widget>[];
-    for (int i = 0; i < _filteredListings.length; i++) {
-      feedItems.add(_buildListingCard(_filteredListings[i]));
-      if ((i + 1) % 4 == 0) {
-        feedItems.add(_buildSmartAdContainer());
-      }
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int columnsCount = (constraints.maxWidth / 180).floor();
+        if (columnsCount < 2) columnsCount = 2;
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: feedItems.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) => feedItems[index],
+        return GridView.builder(
+          padding: const EdgeInsets.all(10),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columnsCount,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 0.72,
+          ),
+          itemCount: listings.length,
+          itemBuilder: (context, index) {
+            final item = listings[index];
+            return _buildMarketplaceCard(item);
+          },
+        );
+      },
     );
   }
 
-  Widget _buildListingCard(KDListing listing) {
+  /// Minimalist Item Grid Display Card
+  Widget _buildMarketplaceCard(KDListing listing) {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () {
@@ -122,114 +182,128 @@ class _KDLeasesFeedScreenState extends State<KDLeasesFeedScreen> {
         );
       },
       child: Card(
-        elevation: 2,
+        elevation: 1.5,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        color: listing.category == FeedCategory.roommate
+            ? Colors.blue.shade50.withOpacity(0.3)
+            : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (listing.imagePaths.isNotEmpty)
-              Container(
-                height: 180,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(12),
-                  ),
-                  color: Colors.grey.shade300,
-                ),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(12),
-                  ),
-                  child: Image.asset(
-                    listing.imagePaths.first,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+            Expanded(
+              child: Stack(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                       color: Colors.grey.shade300,
-                      child: const Center(
-                        child: Icon(
-                          Icons.image_not_supported,
-                          color: Colors.grey,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      child: Image.asset(
+                        listing.imagePaths.isNotEmpty
+                            ? listing.imagePaths.first
+                            : 'assets/fallback.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Colors.grey.shade300,
+                          child: const Center(
+                            child: Icon(Icons.image_not_supported, color: Colors.grey),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              )
-            else
-              Container(
-                height: 180,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(12),
-                  ),
-                  color: Colors.grey.shade300,
-                ),
-                child: const Center(
-                  child: Icon(Icons.image_not_supported, color: Colors.grey),
-                ),
+                  if (listing.postedByRole == UserRole.landlord || listing.isOwnerVerified)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.shade700,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.verified_user_rounded, size: 10, color: Colors.white),
+                            SizedBox(width: 2),
+                            Text(
+                              'Owner',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (listing.category == FeedCategory.roommate)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.blue,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.handshake_rounded, size: 12, color: Colors.white),
+                      ),
+                    ),
+                ],
               ),
+            ),
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(8.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 8),
                   Text(
                     listing.formattedPrice,
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade700,
+                      color: Colors.blue.shade800,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${listing.town}, ${listing.streetName}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Icon(
-                        Icons.location_on_rounded,
-                        size: 16,
-                        color: Colors.grey,
+                      Text(
+                        '${listing.bedroomCount} BR',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          '${listing.town}, ${listing.streetName}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      Text(
+                        listing.freshnessLabel,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildAmenityChip(
-                        listing.waterAvailable ? '💧 Water' : '🚫 Water',
-                        listing.waterAvailable,
-                      ),
-                      _buildAmenityChip(
-                        listing.electricityType == ElectricityType.prepaidMeter
-                            ? '⚡ Prepaid'
-                            : '⚡ Shared',
-                        true,
-                      ),
-                      _buildAmenityChip(
-                        listing.kitchenType == KitchenType.internalKitchen
-                            ? '🍳 Internal'
-                            : '🍳 External',
-                        true,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
                 ],
               ),
             ),
@@ -239,175 +313,202 @@ class _KDLeasesFeedScreenState extends State<KDLeasesFeedScreen> {
     );
   }
 
-  Widget _buildAmenityChip(String label, bool isAvailable) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: isAvailable ? Colors.green.shade50 : Colors.red.shade50,
-        border: Border.all(
-          color: isAvailable ? Colors.green.shade200 : Colors.red.shade200,
-        ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          color: isAvailable ? Colors.green.shade700 : Colors.red.shade700,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSmartAdContainer() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.amber.shade50,
-        border: Border.all(color: Colors.amber.shade200),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        AppStrings.get('ad_safety', language: _currentLanguage),
-        style: TextStyle(
-          fontSize: 13,
-          color: Colors.amber.shade900,
-          height: 1.5,
-        ),
-      ),
-    );
-  }
-
   void _showFilterDrawer() {
-    showModalBottomSheet(
+    showModalBottomSheet
       context: context,
-      isScrollControlled: true,
+      isScrollControlled: true, // Handle layout adjustments alongside keyboard
+      backgroundColor: Colors.transparent,
       builder: (_) => _buildFilterPanel(),
     );
   }
 
+  /// Fixed filter sheet frame: solves keyboard obscurity loops natively
   Widget _buildFilterPanel() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Filters',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              AppStrings.get('feed_filter_town', language: _currentLanguage),
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            _buildTownAutocompleteFilter(),
-            const SizedBox(height: 20),
-            Text(
-              AppStrings.get('feed_filter_budget', language: _currentLanguage),
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                hintText: 'e.g., 100000',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+    return StatefulBuilder(
+      builder: (BuildContext context, StateSetter setModalState) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.only(
+            top: 20,
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Filters',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        _clearAllFilters();
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Clear All'),
+                    ),
+                  ],
                 ),
-              ),
-              onChanged: (value) {
-                _maxBudget = int.tryParse(value);
-                _applyFilters();
-              },
-            ),
-            const SizedBox(height: 20),
-            Text(
-              AppStrings.get(
-                'feed_filter_bedrooms',
-                language: _currentLanguage,
-              ),
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            DropdownButton<int?>(
-              isExpanded: true,
-              value: _minBedrooms,
-              items: [
-                DropdownMenuItem(
-                  value: null,
-                  child: Text(
-                    AppStrings.get(
-                      'feed_filter_all',
-                      language: _currentLanguage,
+                const SizedBox(height: 16),
+
+                // Town autocomplete field
+                Text(
+                  AppStrings.get('feed_filter_town', language: _currentLanguage),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                _buildTownAutocompleteFilter(setModalState),
+                const SizedBox(height: 16),
+
+                // Rent budget target field
+                Text(
+                  AppStrings.get('feed_filter_budget', language: _currentLanguage),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    hintText: 'e.g., 75000',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  onChanged: (value) {
+                    _maxBudget = int.tryParse(value);
+                    _applyFilters();
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Bedroom count dropdown
+                Text(
+                  AppStrings.get('feed_filter_bedrooms', language: _currentLanguage),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<int?>(
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                  ),
+                  isExpanded: true,
+                  value: _exactRoomCount,
+                  items: [
+                    DropdownMenuItem(
+                      value: null,
+                      child: Text(
+                        AppStrings.get('feed_filter_all', language: _currentLanguage),
+                      ),
+                    ),
+                    const DropdownMenuItem(value: 1, child: Text('1 Room')),
+                    const DropdownMenuItem(value: 2, child: Text('2 Rooms')),
+                    const DropdownMenuItem(value: 3, child: Text('3 Rooms')),
+                    const DropdownMenuItem(value: 4, child: Text('4+ Rooms')),
+                  ],
+                  onChanged: (value) {
+                    setModalState(() {
+                      _exactRoomCount = value;
+                    });
+                    _applyFilters();
+                  },
+                ),
+                const SizedBox(height: 24),
+
+                // Final apply button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text(
+                      'Apply Changes',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
-                DropdownMenuItem(value: 1, child: const Text('1+')),
-                DropdownMenuItem(value: 2, child: const Text('2+')),
-                DropdownMenuItem(value: 3, child: const Text('3+')),
-                DropdownMenuItem(value: 4, child: const Text('4+')),
               ],
-              onChanged: (value) {
-                setState(() {
-                  _minBedrooms = value;
-                  _applyFilters();
-                });
-                Navigator.pop(context);
-              },
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildTownAutocompleteFilter() {
-    return Autocomplete<String>(
-      optionsBuilder: (TextEditingValue value) {
-        final query = value.text.trim();
-        if (query.isEmpty) return const Iterable<String>.empty();
+  Widget _buildTownAutocompleteFilter(StateSetter setModalState) {
+    return Autocomplete(
+      optionsBuilder: (TextEditingValue textEditingValue) {
+        final query = textEditingValue.text.trim();
+        if (query.isEmpty) return const Iterable.empty();
 
         final normalized = AppStrings.normalizeTownText(query);
         final aliasMatch = AppStrings.resolveTownAlias(query);
-        if (aliasMatch != null) {
-          return [aliasMatch];
-        }
+        if (aliasMatch != null) return [aliasMatch];
 
-        final matches = AppStrings.cameroonTowns.where((town) {
+        return AppStrings.cameroonTowns.where((town) {
           final normalizedTown = AppStrings.normalizeTownText(town);
           return normalizedTown.contains(normalized) ||
               normalized.contains(normalizedTown);
         });
-        return matches;
       },
       onSelected: (selection) {
-        setState(() {
+        setModalState(() {
           _selectedTown = selection;
-          _applyFilters();
         });
-        Navigator.pop(context);
+        _applyFilters();
       },
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        if (_selectedTown != null && controller.text.isEmpty) {
+          controller.text = _selectedTown!;
+        }
         return TextField(
           controller: controller,
           focusNode: focusNode,
           decoration: InputDecoration(
-            hintText: 'Yaoundé, Douala...',
+            hintText: 'Yaoundé, Douala, Buéa...',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            suffixIcon: controller.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 18),
+                    onPressed: () {
+                      controller.clear();
+                      setModalState(() {
+                        _selectedTown = null;
+                      });
+                      _applyFilters();
+                    },
+                  )
+                : null,
           ),
-          onChanged: (value) {
-            if (value.trim().isEmpty) {
-              setState(() {
-                _selectedTown = null;
-                _applyFilters();
-              });
-            }
-          },
           onSubmitted: (_) => onFieldSubmitted(),
         );
       },
@@ -415,13 +516,6 @@ class _KDLeasesFeedScreenState extends State<KDLeasesFeedScreen> {
   }
 
   void _applyFilters() {
-    setState(() {
-      _filteredListings = KDListingMockData.filterListings(
-        listings: _allListings,
-        town: _selectedTown,
-        maxBudget: _maxBudget,
-        minBedrooms: _minBedrooms,
-      );
-    });
+    setState(() {}); // Triggers rebuild with active filters
   }
 }
